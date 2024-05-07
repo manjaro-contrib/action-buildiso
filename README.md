@@ -13,7 +13,7 @@ This action ...
 It optionally provides:
 
 - GPG-signing
-- Distribution to: Github Releases, CDN77, OSDN, SourceForge
+- Distribution to Github Releases
 
 The following example is a minimal "matrix strategy" setup, that builds minimal and full images for cinnamon, gnome and builds the images each on stable and testing repositories. Refer [here](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix) for more information on including / excluding permutations from matrix strategies.
 
