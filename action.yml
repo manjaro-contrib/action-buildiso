@@ -65,8 +65,10 @@ runs:
     - id: install-build-dependencies
       shell: bash
       run: |
+        sudo apt-add-repository -y universe
         sudo apt-get update
         sudo apt-get install \
+          xorriso \
           gdisk \
           zip \
           systemd-container \
