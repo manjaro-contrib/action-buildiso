@@ -141,13 +141,15 @@ runs:
             sudo install -m644 makepkg.conf /etc/
           popd
           # pacman-contrib provides paccache, used by callers to prune the
-          # /var/cache/pacman/pkg cache between runs.
+          # /var/cache/pacman/pkg cache between runs. Autotools-based, not
+          # meson — needs autogen.sh first.
           echo "## pacman-contrib: source build"
           sudo git clone --depth 1 https://gitlab.archlinux.org/pacman/pacman-contrib.git
           pushd pacman-contrib
-            sudo meson setup --prefix=/usr --buildtype=plain -Ddoc=disabled -Dasciidoc=disabled build
-            sudo meson compile -C build
-            sudo meson install -C build --destdir /tmp/pacman-stage
+            sudo ./autogen.sh
+            sudo ./configure --prefix=/usr --disable-doc
+            sudo make
+            sudo make DESTDIR=/tmp/pacman-stage install
             sudo cp -a /tmp/pacman-stage/. /
           popd
         fi
