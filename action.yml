@@ -120,6 +120,8 @@ runs:
           popd
           sudo install -m644 pacman.conf /etc/pacman.conf
           sudo install -m644 makepkg.conf /etc/
+          sudo install -Dm644 alpm.sysusers /usr/lib/sysusers.d/alpm.conf
+          sudo systemd-sysusers
           sudo mkdir -p /etc/pacman.d
           sudo touch /etc/pacman.d/mirrorlist
         popd
