@@ -98,32 +98,54 @@ runs:
           s3cmd
         sudo python3 -m pip install meson
         sudo python3 -m pip install ninja
+    - id: cache-pacman
+      uses: actions/cache@v4
+      with:
+        path: |
+          /tmp/pacman-stage
+          /tmp/pacman-configs
+        key: pacman-7.1.0-${{ runner.os }}-${{ runner.arch }}-v1
     - id: install-pacman
       shell: bash
       env:
         PACMAN_VERSION: 7.1.0
       run: |
-        sudo git clone --depth 1 https://gitlab.manjaro.org/packages/core/pacman.git
-        pushd pacman
-          sudo wget https://gitlab.archlinux.org/pacman/pacman/-/archive/v${PACMAN_VERSION}/pacman-v${PACMAN_VERSION}.tar.gz
-          sudo tar -xvf pacman-v${PACMAN_VERSION}.tar.gz
-          pushd pacman-v${PACMAN_VERSION}
-            sudo meson --prefix=/usr \
-                      --buildtype=plain \
-                      -Ddoc=disabled \
-                      -Ddoxygen=enabled \
-                      -Dscriptlet-shell=/usr/bin/bash \
-                      -Dldconfig=/usr/bin/ldconfig \
-                      build
-            sudo meson compile -C build
-            sudo meson install -C build
+        set -euo pipefail
+        if [ -d /tmp/pacman-stage/usr ]; then
+          echo "## pacman ${PACMAN_VERSION}: restoring from cache"
+          sudo cp -a /tmp/pacman-stage/. /
+          sudo install -m644 /tmp/pacman-configs/pacman.conf /etc/pacman.conf
+          sudo install -m644 /tmp/pacman-configs/makepkg.conf /etc/
+        else
+          echo "## pacman ${PACMAN_VERSION}: source build"
+          sudo git clone --depth 1 https://gitlab.manjaro.org/packages/core/pacman.git
+          pushd pacman
+            sudo wget https://gitlab.archlinux.org/pacman/pacman/-/archive/v${PACMAN_VERSION}/pacman-v${PACMAN_VERSION}.tar.gz
+            sudo tar -xvf pacman-v${PACMAN_VERSION}.tar.gz
+            pushd pacman-v${PACMAN_VERSION}
+              sudo meson --prefix=/usr \
+                        --buildtype=plain \
+                        -Ddoc=disabled \
+                        -Ddoxygen=enabled \
+                        -Dscriptlet-shell=/usr/bin/bash \
+                        -Dldconfig=/usr/bin/ldconfig \
+                        build
+              sudo meson compile -C build
+              # Stage install for caching; then propagate to / for this run.
+              sudo meson install -C build --destdir /tmp/pacman-stage
+              sudo cp -a /tmp/pacman-stage/. /
+            popd
+            sudo mkdir -p /tmp/pacman-configs
+            sudo cp pacman.conf makepkg.conf /tmp/pacman-configs/
+            sudo install -m644 pacman.conf /etc/pacman.conf
+            sudo install -m644 makepkg.conf /etc/
           popd
-          sudo install -m644 pacman.conf /etc/pacman.conf
-          sudo install -m644 makepkg.conf /etc/
-          sudo useradd --system --no-create-home --shell /usr/sbin/nologin alpm
-          sudo mkdir -p /etc/pacman.d
-          sudo touch /etc/pacman.d/mirrorlist
-        popd
+        fi
+        # System user, /etc/pacman.d, and mirrorlist aren't cached — runtime
+        # state, cheap to (re-)create.
+        id alpm >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin alpm
+        sudo mkdir -p /etc/pacman.d
+        sudo touch /etc/pacman.d/mirrorlist
     - id: install-keyrings
       shell: bash
       run: |
