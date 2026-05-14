@@ -101,13 +101,13 @@ runs:
     - id: install-pacman
       shell: bash
       env:
-        PACMAN_VERSION: 6.0.2
+        PACMAN_VERSION: 7.1.0
       run: |
         sudo git clone --depth 1 https://gitlab.manjaro.org/packages/core/pacman.git
         pushd pacman
-          sudo wget https://sources.archlinux.org/other/pacman/pacman-${PACMAN_VERSION}.tar.xz
-          sudo tar -xvf pacman-${PACMAN_VERSION}.tar.xz
-          pushd pacman-${PACMAN_VERSION}
+          sudo wget https://gitlab.archlinux.org/pacman/pacman/-/archive/v${PACMAN_VERSION}/pacman-v${PACMAN_VERSION}.tar.gz
+          sudo tar -xvf pacman-v${PACMAN_VERSION}.tar.gz
+          pushd pacman-v${PACMAN_VERSION}
             sudo meson --prefix=/usr \
                       --buildtype=plain \
                       -Ddoc=disabled \
