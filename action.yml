@@ -104,7 +104,7 @@ runs:
         path: |
           /tmp/pacman-stage
           /tmp/pacman-configs
-        key: pacman-7.1.0-${{ runner.os }}-${{ runner.arch }}-v1
+        key: pacman-7.1.0-contrib-${{ runner.os }}-${{ runner.arch }}-v1
     - id: install-pacman
       shell: bash
       env:
@@ -139,6 +139,16 @@ runs:
             sudo cp pacman.conf makepkg.conf /tmp/pacman-configs/
             sudo install -m644 pacman.conf /etc/pacman.conf
             sudo install -m644 makepkg.conf /etc/
+          popd
+          # pacman-contrib provides paccache, used by callers to prune the
+          # /var/cache/pacman/pkg cache between runs.
+          echo "## pacman-contrib: source build"
+          sudo git clone --depth 1 https://gitlab.archlinux.org/pacman/pacman-contrib.git
+          pushd pacman-contrib
+            sudo meson setup --prefix=/usr --buildtype=plain -Ddoc=disabled -Dasciidoc=disabled build
+            sudo meson compile -C build
+            sudo meson install -C build --destdir /tmp/pacman-stage
+            sudo cp -a /tmp/pacman-stage/. /
           popd
         fi
         # System user, /etc/pacman.d, and mirrorlist aren't cached — runtime
