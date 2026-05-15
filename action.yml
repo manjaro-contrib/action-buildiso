@@ -99,7 +99,7 @@ runs:
         sudo python3 -m pip install meson
         sudo python3 -m pip install ninja
     - id: cache-pacman
-      uses: actions/cache@v4
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: |
           /tmp/pacman-stage
