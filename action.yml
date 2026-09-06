@@ -138,7 +138,7 @@ runs:
           sudo install -m644 /tmp/pacman-configs/makepkg.conf /etc/
         else
           echo "## pacman ${PACMAN_VERSION}: source build"
-          sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-pacman.git
+          sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-pacman.git pacman
           pushd pacman
             sudo wget https://gitlab.archlinux.org/pacman/pacman/-/archive/v${PACMAN_VERSION}/pacman-v${PACMAN_VERSION}.tar.gz
             sudo tar -xvf pacman-v${PACMAN_VERSION}.tar.gz
@@ -183,7 +183,7 @@ runs:
       run: |
         sudo install -dm755 /usr/share/pacman/keyrings/
 
-        sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-manjaro-keyring.git
+        sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-manjaro-keyring.git manjaro-keyring
         pushd manjaro-keyring
           sudo install -m0644 manjaro.gpg /usr/share/pacman/keyrings/
           sudo install -m0644 manjaro-trusted /usr/share/pacman/keyrings/
@@ -221,7 +221,7 @@ runs:
     - id: install-calamares-tools
       shell: bash
       run: |
-        sudo git clone --depth 1 https://github.com/manjaro-contrib/applications-calamares-tools.git
+        sudo git clone --depth 1 https://github.com/manjaro-contrib/applications-calamares-tools.git calamares-tools
         
         cd calamares-tools
         sudo install -d /usr/share/calamares/
@@ -240,7 +240,7 @@ runs:
       env:
         CUSTOM_REPO: ${{ inputs.custom-repo }}
       run: |
-        sudo git clone --depth 1 https://github.com/manjaro-contrib/tools-development-tools-manjaro-tools.git
+        sudo git clone --depth 1 https://github.com/manjaro-contrib/tools-development-tools-manjaro-tools.git manjaro-tools
         cd manjaro-tools
         sudo make SYSCONFDIR=/etc PREFIX=/usr
         sudo make SYSCONFDIR=/etc PREFIX=/usr install_base
