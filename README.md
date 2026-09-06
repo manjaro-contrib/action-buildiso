@@ -14,6 +14,32 @@ It optionally provides:
 
 - GPG-signing
 - Distribution to Github Releases
+- Upload of the unsplit image to S3-compatible object storage
+
+### Object storage
+
+A GitHub release asset is capped at 2 GB, so an image over that is uploaded
+as a split zip (`.zip` + `.z01` + ...) and the release never carries the
+`.iso` itself. Setting `r2-endpoint`, `r2-bucket` and the two credentials
+uploads the image, its signature, hashes and package list to object
+storage first, while the unsplit file is still on disk - so there is one
+place the image can be downloaded without reassembly.
+
+The upload is skipped entirely when no endpoint or bucket is given, so it
+costs nothing for consumers that do not want it.
+
+```yaml
+      - uses: manjaro-contrib/action-buildiso@main
+        with:
+          edition: sway
+          branch: unstable
+          release-tag: ${{ needs.prepare-release.outputs.release_tag }}
+          r2-endpoint: ${{ secrets.R2_ENDPOINT }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          r2-prefix: ${{ needs.prepare-release.outputs.release_tag }}/
+```
 
 The following example is a minimal "matrix strategy" setup, that builds minimal and full images for cinnamon, gnome and builds the images each on stable and testing repositories. Refer [here](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix) for more information on including / excluding permutations from matrix strategies.
 
