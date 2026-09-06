@@ -16,6 +16,19 @@ It optionally provides:
 - Distribution to Github Releases
 - Upload of the unsplit image to S3-compatible object storage
 
+### Sources
+
+Everything the build clones or fetches comes from the `manjaro-contrib`
+mirrors on GitHub rather than `gitlab.manjaro.org` directly: pacman,
+manjaro-keyring, calamares-tools, manjaro-tools, manjaro-release,
+pacman-mirrors and the default iso-profiles.
+
+The upstream instance is the source of truth and the mirrors track it, but
+it is not always reachable from a runner. A single unavailable moment took
+out seven of fifteen builds with `remote: Token has expired` on a public
+clone, and a build that has already spent twenty minutes should not die
+fetching a keyring.
+
 ### Chroot DNS
 
 `buildiso` builds its overlays through `mkchroot` -> `basestrap`, which
