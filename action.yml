@@ -53,6 +53,22 @@ inputs:
   additional-trusted-gpg:
     description: 'gpg keyids that pacman should trust'
     required: false
+  r2-endpoint:
+    description: 's3 endpoint to upload the unsplit iso to (skipped if unset)'
+    required: false
+  r2-access-key-id:
+    description: 's3 access key id'
+    required: false
+  r2-secret-access-key:
+    description: 's3 secret access key'
+    required: false
+  r2-bucket:
+    description: 's3 bucket to upload the iso into'
+    required: false
+  r2-prefix:
+    description: 'key prefix inside the bucket, e.g. rc-202601010000/'
+    required: false
+    default: ''
 
 outputs:
   file-path:
@@ -308,6 +324,59 @@ runs:
         ssh-agent -a /tmp/ssh_agent.sock > /dev/null
         echo "upload-files=./${{ steps.image-build.outputs.file-path }}+(|.sha*|.pkgs|.sig|.torrent)" >> $GITHUB_OUTPUT
         mkdir -p ${{ inputs.edition }}/${{ inputs.version }}
+    - id: upload-object-storage
+      shell: bash
+      env:
+        R2_ENDPOINT: ${{ inputs.r2-endpoint }}
+        R2_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
+        R2_SECRET_ACCESS_KEY: ${{ inputs.r2-secret-access-key }}
+        R2_BUCKET: ${{ inputs.r2-bucket }}
+        R2_PREFIX: ${{ inputs.r2-prefix }}
+        ISO: ${{ steps.image-build.outputs.file-path }}
+      run: |
+        # if is not yet supported in composite https://github.com/actions/runner/blob/main/docs/adrs/0549-composite-run-steps.md#if-condition
+        if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
+          echo "## no object storage configured"
+          exit 0
+        fi
+        echo "## uploading the unsplit iso"
+        # runs before the split-zip below: github caps an asset at 2 GB, so
+        # the release can only ever carry the parts, while object storage
+        # takes the image itself and serves it without reassembly
+        python3 -m pip install --quiet boto3
+        python3 - <<'EOF'
+        import os
+
+        import boto3
+        from boto3.s3.transfer import TransferConfig
+
+        iso = os.environ["ISO"]
+        key = os.environ.get("R2_PREFIX", "") + iso
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=os.environ["R2_ENDPOINT"],
+            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+            region_name="auto",
+        )
+        # images run to several gigabytes; a larger part keeps the count sane
+        config = TransferConfig(multipart_chunksize=64 * 1024 * 1024)
+        size = os.path.getsize(iso)
+        print(f"{iso}: {size / 1e9:.2f} GB -> {key}")
+        s3.upload_file(iso, os.environ["R2_BUCKET"], key, Config=config)
+        head = s3.head_object(Bucket=os.environ["R2_BUCKET"], Key=key)
+        if head["ContentLength"] != size:
+            # a truncated object would satisfy a later existence check
+            s3.delete_object(Bucket=os.environ["R2_BUCKET"], Key=key)
+            raise SystemExit(f"{iso}: uploaded {head['ContentLength']} of {size}")
+        print(f"{iso}: published")
+
+        for suffix in (".sig", ".sha1", ".sha256", ".sha512", ".pkgs"):
+            if not os.path.exists(iso + suffix):
+                continue
+            s3.upload_file(iso + suffix, os.environ["R2_BUCKET"], key + suffix)
+            print(f"{iso}{suffix}: published")
+        EOF
     - id: upload-github-release
       shell: bash -O extglob {0}
       env:
@@ -323,8 +392,6 @@ runs:
         echo ${{ github.token }} | gh auth login --with-token
         gh release create ${{ inputs.release-tag }} --title ${{ inputs.release-tag }} --repo ${{ github.repository }} --notes "automated release" --prerelease || echo "release already exists"
 
-        GITHUB_LINK=https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ inputs.release-tag }}
-
         if [[ -z "$(du --threshold=${LIMIT_MB}M ${{ steps.image-build.outputs.file-path }})" ]]; then
           # iso is small enough to upload already
           gh release upload ${{ inputs.release-tag }} --repo ${{ github.repository }} --clobber \
@@ -332,8 +399,7 @@ runs:
         else
           # iso is too big - creating a split-zip
           zip -j -s ${LIMIT_MB}m ${{ steps.image-build.outputs.file-path }}.zip ${{ steps.image-build.outputs.file-path }}
-          
-          REMOTE_FILES=$(find . -maxdepth 1 -name "*.z*" -exec basename {} \; | xargs -I{} echo "-w \"${GITHUB_LINK}/{}\"")
+
           gh release upload ${{ inputs.release-tag }} --repo ${{ github.repository }} --clobber \
             ./${{ steps.image-build.outputs.file-path }}+(.z*|.sha*|.pkgs|.sig|.torrent)
         fi
