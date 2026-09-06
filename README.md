@@ -46,6 +46,11 @@ place the image can be downloaded without reassembly.
 The upload is skipped entirely when no endpoint or bucket is given, so it
 costs nothing for consumers that do not want it.
 
+The set is all-or-nothing. An image whose signature or checksum failed to
+upload cannot be verified, and anything serving a `latest` alias would
+point at it regardless - so if any part of the set fails, whatever already
+landed is removed and the previous build stays in place.
+
 ```yaml
       - uses: manjaro-contrib/action-buildiso@main
         with:
