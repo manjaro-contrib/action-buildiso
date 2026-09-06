@@ -358,6 +358,7 @@ runs:
 
         import boto3
         from boto3.s3.transfer import TransferConfig
+        from botocore.exceptions import BotoCoreError, ClientError
 
         iso = os.environ["ISO"]
         key = os.environ.get("R2_PREFIX", "") + iso
@@ -372,19 +373,37 @@ runs:
         config = TransferConfig(multipart_chunksize=64 * 1024 * 1024)
         size = os.path.getsize(iso)
         print(f"{iso}: {size / 1e9:.2f} GB -> {key}")
-        s3.upload_file(iso, os.environ["R2_BUCKET"], key, Config=config)
-        head = s3.head_object(Bucket=os.environ["R2_BUCKET"], Key=key)
+        bucket = os.environ["R2_BUCKET"]
+        s3.upload_file(iso, bucket, key, Config=config)
+        head = s3.head_object(Bucket=bucket, Key=key)
         if head["ContentLength"] != size:
             # a truncated object would satisfy a later existence check
-            s3.delete_object(Bucket=os.environ["R2_BUCKET"], Key=key)
+            s3.delete_object(Bucket=bucket, Key=key)
             raise SystemExit(f"{iso}: uploaded {head['ContentLength']} of {size}")
         print(f"{iso}: published")
 
-        for suffix in (".sig", ".sha1", ".sha256", ".sha512", ".pkgs"):
-            if not os.path.exists(iso + suffix):
-                continue
-            s3.upload_file(iso + suffix, os.environ["R2_BUCKET"], key + suffix)
-            print(f"{iso}{suffix}: published")
+        # an image whose signature or checksum is missing cannot be
+        # verified, and the stable alias would point at it regardless. So
+        # the set is all-or-nothing: anything already uploaded is removed
+        # if a later part fails, leaving the previous build in place.
+        written = [key]
+        try:
+            for suffix in (".sig", ".sha1", ".sha256", ".sha512", ".pkgs"):
+                if not os.path.exists(iso + suffix):
+                    continue
+                s3.upload_file(iso + suffix, bucket, key + suffix)
+                written.append(key + suffix)
+                print(f"{iso}{suffix}: published")
+        except (OSError, BotoCoreError, ClientError) as e:
+            print(f"{iso}: rolling back {len(written)} object(s): {e}")
+            for done in written:
+                try:
+                    s3.delete_object(Bucket=bucket, Key=done)
+                except (BotoCoreError, ClientError) as cleanup:
+                    # report it: a partial set left behind is what this
+                    # whole block exists to prevent
+                    print(f"{iso}: could not remove {done}: {cleanup}")
+            raise
         EOF
     - id: upload-github-release
       shell: bash -O extglob {0}
