@@ -53,6 +53,10 @@ inputs:
   additional-trusted-gpg:
     description: 'gpg keyids that pacman should trust'
     required: false
+  chroot-nameservers:
+    description: 'space-separated resolvers to write into the build chroots'
+    required: false
+    default: '1.1.1.1 8.8.8.8'
   r2-endpoint:
     description: 's3 endpoint to upload the unsplit iso to (skipped if unset)'
     required: false
@@ -271,6 +275,7 @@ runs:
         CODE_NAME: ${{ inputs.code-name }}
         OFFICE: ${{ inputs.office-chooser }}
         BUILD_MIRROR: ${{ inputs.build-mirror }}
+        CHROOT_NAMESERVERS: ${{ inputs.chroot-nameservers }}
       run: |
         echo "## building iso"
         [ "$SCOPE" == "minimal" ] && unset SCOPE && unset OFFICE
@@ -285,6 +290,10 @@ runs:
         sudo sed -i -e "s|dist_codename=\$(get_codename)|dist_codename=\"${CODE_NAME:-$DISTRIB_CODENAME}\"|g" /usr/lib/manjaro-tools/util.sh
         sudo sed -i -e "s|build_mirror='https://mirror.easyname.at/manjaro'|build_mirror=\'${BUILD_MIRROR}\'|g" /usr/lib/manjaro-tools/util.sh
         
+        # the chroots inherit no resolver; see the script for why
+        sudo --preserve-env=CHROOT_NAMESERVERS \
+          bash "$GITHUB_ACTION_PATH/scripts/enable-chroot-dns.sh"
+
         sudo buildiso ${SCOPE:+-f} -p $EDITION -b $BRANCH -k $KERNEL ${OFFICE:+-o}
 
         sudo rm -Rf /var/lib/manjaro-tools/buildiso/*
