@@ -16,6 +16,24 @@ It optionally provides:
 - Distribution to Github Releases
 - Upload of the unsplit image to S3-compatible object storage
 
+### Chroot DNS
+
+`buildiso` builds its overlays through `mkchroot` -> `basestrap`, which
+copies the host keyring and mirrorlist but not `/etc/resolv.conf`, and
+mounts the API filesystems with the `chroot_api_mount` variant that
+carries no `resolv.conf` bind - unlike `chroot-run`, used for package
+builds, which does. So the chroots resolve nothing, and both consequences
+are silent because the build still succeeds:
+
+- `pacman-mirrors` reports `Internet connection appears to be down` and
+  generates the mirrorlist by random method rather than by ranking
+- post-install scriptlets that fetch anything fail, so e.g.
+  `libpamac-flatpak-plugin` ships without its remote configured
+
+`scripts/enable-chroot-dns.sh` writes a resolver into every overlay by
+hooking `chroot_create`, the one function all four stages go through. Set
+`chroot-nameservers` to override the default `1.1.1.1 8.8.8.8`.
+
 ### Object storage
 
 A GitHub release asset is capped at 2 GB, so an image over that is uploaded
