@@ -30,8 +30,11 @@ are silent because the build still succeeds:
 - post-install scriptlets that fetch anything fail, so e.g.
   `libpamac-flatpak-plugin` ships without its remote configured
 
-`scripts/enable-chroot-dns.sh` writes a resolver into every overlay by
-hooking `chroot_create`, the one function all four stages go through. Set
+`scripts/enable-chroot-dns.sh` writes a resolver into the chroot from
+`mkchroot`, between the directory being created and `basestrap` populating
+it. That timing is the point: the packages' own post-install hooks resolve
+names during installation - `pacman-mirrors` runs as hook 24 of 26 - so a
+resolver written after the chroot is built arrives too late to help. Set
 `chroot-nameservers` to override the default `1.1.1.1 8.8.8.8`.
 
 ### Object storage

@@ -10,57 +10,53 @@
 # falls back to a random mirrorlist, and post-install scriptlets that fetch
 # anything fail. Both are silent - the build still succeeds.
 #
-# chroot_create is the single door every overlay goes through (rootfs,
-# desktopfs, livefs, mhwdfs), so writing the resolver there covers all of
-# them without naming each stage. Idempotent: safe to run more than once.
+# The resolver must exist *before* basestrap installs anything: the
+# packages' own post-install hooks need it. pacman-mirrors runs as hook
+# (24/26) during installation and is what reports "Internet connection
+# appears to be down", so writing the file after chroot_create returns -
+# as this script first did - is already too late.
+#
+# mkchroot creates $working_dir and then calls basestrap, so the resolver
+# goes in between. That covers every overlay (rootfs, desktopfs, livefs,
+# mhwdfs) because they all reach basestrap through mkchroot.
+#
+# Idempotent: safe to run more than once.
 set -euo pipefail
 
-LIB=${MANJARO_TOOLS_LIB:-/usr/lib/manjaro-tools}
-IMAGE_SH="$LIB/util-iso-image.sh"
-ISO_SH="$LIB/util-iso.sh"
-RESOLV_SH="$LIB/util-resolv.sh"
+MKCHROOT=${MKCHROOT_BIN:-/usr/bin/mkchroot}
 
-for f in "$IMAGE_SH" "$ISO_SH"; do
-  [ -f "$f" ] || { echo "not found: $f" >&2; exit 1; }
-done
+[ -f "$MKCHROOT" ] || { echo "not found: $MKCHROOT" >&2; exit 1; }
 
-cat > "$RESOLV_SH" <<'EOF'
-# shellcheck shell=bash
-write_resolv_conf() {
-    # a chroot inherits no resolver; without one pacman-mirrors reports
-    # "Internet connection appears to be down" and randomises the mirrorlist
-    install -Dm644 /dev/null "$1/etc/resolv.conf"
-    local ns
-    for ns in ${CHROOT_NAMESERVERS:-1.1.1.1 8.8.8.8}; do
-        printf 'nameserver %s\n' "$ns" >> "$1/etc/resolv.conf"
-    done
-}
-EOF
-
-if ! grep -q util-resolv "$ISO_SH"; then
-  sed -i "1a source $RESOLV_SH" "$ISO_SH"
+if grep -q 'chroot dns' "$MKCHROOT"; then
+  echo "chroot dns already enabled"
+  exit 0
 fi
 
-if ! grep -q write_resolv_conf "$IMAGE_SH"; then
-  python3 - "$IMAGE_SH" <<'EOF'
+python3 - "$MKCHROOT" "${CHROOT_NAMESERVERS:-1.1.1.1 8.8.8.8}" <<'EOF'
 import pathlib
 import sys
 
-path = pathlib.Path(sys.argv[1])
+path, nameservers = pathlib.Path(sys.argv[1]), sys.argv[2].split()
 text = path.read_text()
-old = """    setarch "${target_arch}" \\
-        mkchroot ${mkchroot_args[*]} ${flag} $@
-}"""
-new = """    setarch "${target_arch}" \\
-        mkchroot ${mkchroot_args[*]} ${flag} $@ || return 1
-    write_resolv_conf "$1"
-}"""
-if old not in text:
-    raise SystemExit("chroot_create is not in the expected shape")
-path.write_text(text.replace(old, new, 1))
-EOF
-fi
 
-grep -q write_resolv_conf "$IMAGE_SH" || { echo "patch did not apply" >&2; exit 1; }
-grep -q util-resolv "$ISO_SH" || { echo "source line missing" >&2; exit 1; }
+# both basestrap calls are guarded by the same branch, so inserting before
+# the enclosing `if` covers whichever one runs
+anchor = "# Workaround when creating a chroot in a branch different of the host"
+if anchor not in text:
+    raise SystemExit("mkchroot is not in the expected shape")
+
+lines = "".join(
+    f'printf \'nameserver {ns}\\n\' >> "$working_dir/etc/resolv.conf"\n'
+    for ns in nameservers
+)
+inject = f"""# chroot dns: package hooks resolve names during installation - notably
+# pacman-mirrors, which otherwise reports the connection as down and
+# randomises the mirrorlist - and basestrap copies no resolver in
+install -Dm644 /dev/null "$working_dir/etc/resolv.conf"
+{lines}
+{anchor}"""
+path.write_text(text.replace(anchor, inject, 1))
+EOF
+
+grep -q 'chroot dns' "$MKCHROOT" || { echo "patch did not apply" >&2; exit 1; }
 echo "chroot dns enabled"
