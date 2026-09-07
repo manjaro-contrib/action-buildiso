@@ -13,6 +13,7 @@ action.yml and checks, in seconds:
 - every fetched file exists and looks like what the step does with it
 - no source has drifted back to an unreachable host
 - nothing the runner executes has CRLF line endings
+- every mirror pacman falls back through still serves the repositories
 
 It reads action.yml rather than repeating its URLs, so a source added
 without a corresponding check is still covered.
@@ -170,6 +171,34 @@ def check_keyring_repos(script: Path, branch: str = "stable") -> list[str]:
     return problems
 
 
+def check_build_mirrors(action: Path, branch: str = "stable") -> list[str]:
+    """Every mirror pacman falls back through must serve the repositories.
+
+    A mirror that has stopped syncing, or moved, is worse than no fallback
+    at all: the failover finds it, the download fails anyway, and the
+    build is no better off for the wait.
+    """
+    problems = []
+    doc = yaml.safe_load(action.read_text())
+    inputs = doc["inputs"]
+    mirrors = [inputs["build-mirror"]["default"], *inputs["fallback-mirrors"]["default"].split()]
+
+    for mirror in mirrors:
+        db = f"{mirror.rstrip('/')}/{branch}/core/x86_64/core.db"
+        payload = fetch(db, binary=True)
+        if payload is None:
+            problems.append(f"{db} is not fetchable")
+            continue
+        try:
+            with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as db_tar:
+                entries = len(db_tar.getnames())
+        except (tarfile.TarError, OSError) as e:
+            problems.append(f"{db} is not a readable package database: {e}")
+            continue
+        log(f"  mirror {mirror.split('/')[2]:43} -> core.db, {entries} entries")
+    return problems
+
+
 def check_line_endings(action: Path) -> list[str]:
     """No CRLF anywhere the runner executes.
 
@@ -199,6 +228,7 @@ def main() -> int:
             + check_fetches(body)
             + check_line_endings(args.action)
             + check_keyring_repos(args.action.parent / "scripts/install-archlinux-keyring.sh")
+            + check_build_mirrors(args.action)
         )
 
     if problems:
