@@ -47,4 +47,4 @@ jobs:
           # only override the action's default when a mirror is configured:
           # passing an unset secret sets it to the empty string, and the
           # build then resolves /unstable/$repo/$arch with no host at all
-          build-mirror: ${{ secrets.BUILD_MIRROR || 'https://mirror.easyname.at/manjaro' }}
+          build-mirror: ${{ secrets.BUILD_MIRROR || 'https://opencolo.mm.fcix.net/manjaro' }}
