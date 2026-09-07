@@ -47,7 +47,7 @@ inputs:
   build-mirror:
     description: 'specific build mirror to use'
     required: false
-    default: https://opencolo.mm.fcix.net/manjaro
+    default: https://forksystems.mm.fcix.net/manjaro
   fallback-mirrors:
     description: >-
       whitespace-separated mirrors pacman falls back through when the build
@@ -55,9 +55,9 @@ inputs:
     required: false
     # the same sync tier as the default build mirror, different operators
     default: >-
-      https://forksystems.mm.fcix.net/manjaro
       https://coresite.mm.fcix.net/manjaro
-      https://mirror.fcix.net/manjaro
+      https://nnenix.mm.fcix.net/manjaro
+      https://opencolo.mm.fcix.net/manjaro
   gpg-secret-key-base64:
     description: 'base64 encoded gpg secret key (without a passphrase) to sign the zip (if set)'
     required: false

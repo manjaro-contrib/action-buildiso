@@ -114,9 +114,20 @@ host in the url pacman asked for. `fallback-mirrors` sets the list; it
 defaults to three mirrors on the same sync tier as the build mirror and
 under different operators, and emptying it restores plain downloads.
 
-The mirror it was fetching from is not the problem - `opencolo` sustains
-30 to 50 MB/s from a runner, and the failure was a stall rather than
-slowness. Having only one mirror is the problem, so that is what changed.
+pacman runs `XferCommand` once per file - around eight hundred times for a
+desktop transaction - and each run is a fresh process that remembers
+nothing. A mirror that is down would therefore cost its connect timeout
+every single time, which is hours of waiting and, in practice, pacman
+giving up first. So a mirror that fails on transport is recorded under
+`sick/` and skipped by the invocations that follow, for five minutes.
+An HTTP error is not transport: a 404 means that mirror answered and the
+file is simply not there, which says nothing about its health.
+
+Having only one mirror was the original problem. Which mirror is first
+also turned out to matter: measured against the same package, `forksystems`
+and `coresite` sustain about 30 MB/s where `opencolo` manages 19.6, with
+lower connect latency, and `opencolo` was the mirror that failed twice in
+one evening. It is still in the list, just no longer in the hot path.
 
 ### Chroot DNS
 

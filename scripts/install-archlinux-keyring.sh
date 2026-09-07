@@ -19,7 +19,7 @@ set -euo pipefail
 # not stop a build. Both carry core, only under different layouts.
 readonly BRANCH="${BRANCH:-stable}"
 readonly REPOS=(
-  "${BUILD_MIRROR:-https://opencolo.mm.fcix.net/manjaro}/${BRANCH}/core/x86_64"
+  "${BUILD_MIRROR:-https://forksystems.mm.fcix.net/manjaro}/${BRANCH}/core/x86_64"
   "https://geo.mirror.pkgbuild.com/core/os/x86_64"
 )
 
