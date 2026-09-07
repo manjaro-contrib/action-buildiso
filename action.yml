@@ -93,6 +93,7 @@ runs:
         MESON_VERSION: '1.12.0'
         NINJA_VERSION: '1.13.2'
       run: |
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         sudo apt-add-repository -y universe
         sudo apt-get update
         sudo apt-get install \
@@ -128,7 +129,10 @@ runs:
         # a build that was passing. `uv tool install` rather than
         # `pip install --system`: ubuntu marks its python
         # externally-managed and refuses a system install outright.
-        curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+        # the installer is piped, so retry the download and not the shell
+        retry curl -LsSf --connect-timeout 30 \
+          -o /tmp/uv-installer.sh "https://astral.sh/uv/${UV_VERSION}/install.sh"
+        sh /tmp/uv-installer.sh
         export PATH="$HOME/.local/bin:$PATH"
         # into /usr/local/bin, not the default ~/.local/bin: the pacman
         # build runs meson under sudo, which resets PATH to secure_path and
@@ -152,6 +156,7 @@ runs:
       env:
         PACMAN_VERSION: 7.1.0
       run: |
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         set -euo pipefail
         if [ -d /tmp/pacman-stage/usr ]; then
           echo "## pacman ${PACMAN_VERSION}: restoring from cache"
@@ -160,9 +165,9 @@ runs:
           sudo install -m644 /tmp/pacman-configs/makepkg.conf /etc/
         else
           echo "## pacman ${PACMAN_VERSION}: source build"
-          sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-pacman.git pacman
+          retry sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-pacman.git pacman
           pushd pacman
-            sudo wget https://gitlab.archlinux.org/pacman/pacman/-/archive/v${PACMAN_VERSION}/pacman-v${PACMAN_VERSION}.tar.gz
+            retry sudo wget https://gitlab.archlinux.org/pacman/pacman/-/archive/v${PACMAN_VERSION}/pacman-v${PACMAN_VERSION}.tar.gz
             sudo tar -xvf pacman-v${PACMAN_VERSION}.tar.gz
             pushd pacman-v${PACMAN_VERSION}
               sudo meson --prefix=/usr \
@@ -186,7 +191,7 @@ runs:
           # /var/cache/pacman/pkg cache between runs. Autotools-based, not
           # meson — needs autogen.sh first.
           echo "## pacman-contrib: source build"
-          sudo git clone --depth 1 https://gitlab.archlinux.org/pacman/pacman-contrib.git
+          retry sudo git clone --depth 1 https://gitlab.archlinux.org/pacman/pacman-contrib.git
           pushd pacman-contrib
             sudo ./autogen.sh
             sudo ./configure --prefix=/usr --disable-doc
@@ -202,10 +207,14 @@ runs:
         sudo touch /etc/pacman.d/mirrorlist
     - id: install-keyrings
       shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        BUILD_MIRROR: ${{ inputs.build-mirror }}
       run: |
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         sudo install -dm755 /usr/share/pacman/keyrings/
 
-        sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-manjaro-keyring.git manjaro-keyring
+        retry sudo git clone --depth 1 https://github.com/manjaro-contrib/packages-core-manjaro-keyring.git manjaro-keyring
         pushd manjaro-keyring
           sudo install -m0644 manjaro.gpg /usr/share/pacman/keyrings/
           sudo install -m0644 manjaro-trusted /usr/share/pacman/keyrings/
@@ -214,36 +223,49 @@ runs:
 
         mkdir -p archlinux-keyring
         pushd archlinux-keyring
-          wget https://archlinux.org/packages/core/any/archlinux-keyring/download -O /tmp/archlinux-keyring.tar.zst
-          tar --use-compress-program=unzstd --strip-components=4 --wildcards -xvf /tmp/archlinux-keyring.tar.zst usr/share/pacman/keyrings/*
-          sudo install -m0644 archlinux.gpg /usr/share/pacman/keyrings/
-          sudo install -m0644 archlinux-trusted /usr/share/pacman/keyrings/
-          sudo install -m0644 archlinux-revoked /usr/share/pacman/keyrings/
+          # resolved from a repository database rather than the packages page;
+          # see the script for why that url cannot be relied on
+          bash "$GITHUB_ACTION_PATH/scripts/install-archlinux-keyring.sh"
         popd
 
         sudo pacman-key --init
         sudo pacman-key --populate archlinux manjaro
 
+        # one keyserver being unreachable is not a reason to fail a build,
+        # and the two carry the same keys
         for gpg_key in ${{ inputs.additional-trusted-gpg }}; do
-          sudo pacman-key --keyserver keys.openpgp.org --recv-key $gpg_key
-          sudo pacman-key --lsign-key $gpg_key
+          received=""
+          for keyserver in keys.openpgp.org keyserver.ubuntu.com; do
+            if retry sudo pacman-key --keyserver "$keyserver" --recv-key "$gpg_key"; then
+              received=1
+              break
+            fi
+            echo "## $keyserver did not serve $gpg_key, trying the next" >&2
+          done
+          if [ -z "$received" ]; then
+            echo "## no keyserver served $gpg_key" >&2
+            exit 1
+          fi
+          sudo pacman-key --lsign-key "$gpg_key"
         done
     - id: install-arch-install-scripts
       shell: bash
       env:
         VERSION: "27"
       run: |
-        sudo wget https://github.com/archlinux/arch-install-scripts/archive/refs/tags/v${VERSION}.tar.gz -O arch-install-scripts.tar.gz
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
+        retry sudo wget https://github.com/archlinux/arch-install-scripts/archive/refs/tags/v${VERSION}.tar.gz -O arch-install-scripts.tar.gz
         sudo tar -xvf arch-install-scripts.tar.gz
         sudo make -C arch-install-scripts-${VERSION}
         sudo make -C arch-install-scripts-${VERSION} check
         sudo make -C arch-install-scripts-${VERSION} PREFIX=/usr install
         
-        sudo wget https://raw.githubusercontent.com/manjaro-contrib/applications-pacman-mirrors/master/data/etc/pacman-mirrors.conf -O /etc/pacman-mirrors.conf
+        retry sudo wget https://raw.githubusercontent.com/manjaro-contrib/applications-pacman-mirrors/master/data/etc/pacman-mirrors.conf -O /etc/pacman-mirrors.conf
     - id: install-calamares-tools
       shell: bash
       run: |
-        sudo git clone --depth 1 https://github.com/manjaro-contrib/applications-calamares-tools.git calamares-tools
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
+        retry sudo git clone --depth 1 https://github.com/manjaro-contrib/applications-calamares-tools.git calamares-tools
         
         cd calamares-tools
         sudo install -d /usr/share/calamares/
@@ -253,7 +275,8 @@ runs:
       env:
         VERSION: "32"
       run: |
-        sudo wget https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/archive/v${VERSION}/mkinitcpio-v${VERSION}.tar.gz
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
+        retry sudo wget https://gitlab.archlinux.org/archlinux/mkinitcpio/mkinitcpio/-/archive/v${VERSION}/mkinitcpio-v${VERSION}.tar.gz
         sudo tar -xf mkinitcpio-v${VERSION}.tar.gz
         sudo make -C mkinitcpio-v${VERSION} install
         sudo sed -i -e 's|File|Path|' /usr/share/libalpm/hooks/*hook
@@ -262,7 +285,8 @@ runs:
       env:
         CUSTOM_REPO: ${{ inputs.custom-repo }}
       run: |
-        sudo git clone --depth 1 https://github.com/manjaro-contrib/tools-development-tools-manjaro-tools.git manjaro-tools
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
+        retry sudo git clone --depth 1 https://github.com/manjaro-contrib/tools-development-tools-manjaro-tools.git manjaro-tools
         cd manjaro-tools
         sudo make SYSCONFDIR=/etc PREFIX=/usr
         sudo make SYSCONFDIR=/etc PREFIX=/usr install_base
@@ -277,7 +301,9 @@ runs:
       env:
         REPO: ${{ inputs.iso-profiles-repo }}
         BRANCH: ${{ inputs.iso-profiles-branch }}
-      run: sudo git clone ${BRANCH:+--branch ${BRANCH}} --depth 1 ${REPO} iso-profiles
+      run: |
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
+        retry sudo git clone ${BRANCH:+--branch ${BRANCH}} --depth 1 ${REPO} iso-profiles
     - id: cleanup_space_workaround
       shell: bash
       run: |
@@ -299,12 +325,16 @@ runs:
         BUILD_MIRROR: ${{ inputs.build-mirror }}
         CHROOT_NAMESERVERS: ${{ inputs.chroot-nameservers }}
       run: |
+        . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         echo "## building iso"
         [ "$SCOPE" == "minimal" ] && unset SCOPE && unset OFFICE
         [ "$OFFICE" == "false" ] && unset OFFICE
 
-        # source the version info from current release info
-        source <(curl -s https://raw.githubusercontent.com/manjaro-contrib/packages-core-manjaro-release/master/lsb-release)
+        # source the version info from current release info; fetched to a
+        # file first, so a failed download cannot be sourced as empty
+        retry curl -sf --connect-timeout 30 -o /tmp/lsb-release \
+          https://raw.githubusercontent.com/manjaro-contrib/packages-core-manjaro-release/master/lsb-release
+        source /tmp/lsb-release
 
         sudo sed -i -e "s|dist_name=\$(get_distname)|dist_name=${DISTRIB_ID%Linux}|g" /usr/lib/manjaro-tools/util.sh
         sudo sed -i -e 's|iso_name=$(get_osid)|iso_name=manjaro|g' /usr/lib/manjaro-tools/util.sh
