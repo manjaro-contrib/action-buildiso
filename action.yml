@@ -129,10 +129,13 @@ runs:
         # into /usr/local/bin, not the default ~/.local/bin: the pacman
         # build runs meson under sudo, which resets PATH to secure_path and
         # would not see a binary in the runner user's home
+        # --force: the runner image already ships a ninja in
+        # /usr/local/bin, and uv refuses to replace an existing executable.
+        # Pinning the version is the point, so ours has to win.
         sudo env "PATH=$PATH" UV_TOOL_BIN_DIR=/usr/local/bin \
-          uv tool install "meson==${MESON_VERSION}"
+          uv tool install --force "meson==${MESON_VERSION}"
         sudo env "PATH=$PATH" UV_TOOL_BIN_DIR=/usr/local/bin \
-          uv tool install "ninja==${NINJA_VERSION}"
+          uv tool install --force "ninja==${NINJA_VERSION}"
     - id: cache-pacman
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
