@@ -35,7 +35,7 @@ MIRRORS_FILE="${PACMAN_XFER_MIRRORS:-$(dirname "${BASH_SOURCE[0]}")/build-mirror
 curl_opts=(
   --location --fail --silent --show-error
   --continue-at -
-  --connect-timeout "${PACMAN_XFER_CONNECT_TIMEOUT:-15}"
+  --connect-timeout "${PACMAN_XFER_CONNECT_TIMEOUT:-5}"
   --speed-limit "${PACMAN_XFER_SPEED_LIMIT:-10000}"
   --speed-time "${PACMAN_XFER_SPEED_TIME:-20}"
 )
@@ -74,9 +74,39 @@ case "$URL" in
     ;;
 esac
 
+# Each package is a separate invocation of this script - pacman runs
+# XferCommand once per file, ~800 times for a desktop transaction - so a
+# mirror that is down would otherwise cost its connect timeout every time.
+# At 15s that is hours of waiting, and pacman gives up long before. A
+# mirror that fails is recorded here and skipped by the invocations that
+# follow, until the marker ages out and it gets another chance.
+readonly SICK_DIR="${PACMAN_XFER_SICK_DIR:-$(dirname "$MIRRORS_FILE")/sick}"
+readonly SICK_TTL="${PACMAN_XFER_SICK_TTL:-300}"
+
+sick() {
+  local marker="$SICK_DIR/$(echo "$1" | tr -c 'a-zA-Z0-9' '_')"
+  [ -f "$marker" ] || return 1
+  local age=$(( $(date +%s) - $(stat -c %Y "$marker" 2>/dev/null || echo 0) ))
+  if [ "$age" -ge "$SICK_TTL" ]; then
+    rm -f "$marker"
+    return 1
+  fi
+  return 0
+}
+
+mark_sick() {
+  mkdir -p "$SICK_DIR" 2>/dev/null || return 0
+  : > "$SICK_DIR/$(echo "$1" | tr -c 'a-zA-Z0-9' '_')" 2>/dev/null || true
+}
+
 status=1
+tried=0
 while read -r mirror; do
   [ -n "$mirror" ] || continue
+  if sick "$mirror"; then
+    continue
+  fi
+  tried=$((tried + 1))
   candidate="${mirror%/}${suffix}"
 
   fetch "$candidate"
@@ -86,8 +116,28 @@ while read -r mirror; do
   # a stalled mirror leaves a partial file; the next mirror must not
   # resume into it
   rm -f "$OUT"
+
+  # 22 is an HTTP error from a mirror that answered - the file is missing
+  # there, which says nothing about the mirror's health. Only a transport
+  # failure (timeout, refused, reset) means "do not come back for a while".
+  if [ "$status" -ne 22 ]; then
+    mark_sick "$mirror"
+  fi
   echo "## xfer: ${mirror} failed with exit ${status}, trying the next mirror" >&2
 done < "$MIRRORS_FILE"
+
+if [ "$tried" -eq 0 ]; then
+  # every mirror is marked sick; clear the markers and take one honest run
+  # through the list rather than failing without having tried anything
+  rm -rf "$SICK_DIR"
+  while read -r mirror; do
+    [ -n "$mirror" ] || continue
+    fetch "${mirror%/}${suffix}"
+    status=$?
+    [ "$status" -eq 0 ] && exit 0
+    rm -f "$OUT"
+  done < "$MIRRORS_FILE"
+fi
 
 echo "## xfer: no mirror served ${suffix#/}" >&2
 exit "$status"
