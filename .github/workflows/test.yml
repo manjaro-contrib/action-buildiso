@@ -8,6 +8,9 @@ env:
   version: ci-test-ignore-me-${{ github.event.number }}
   ###################
 
+permissions:
+  contents: write
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest
