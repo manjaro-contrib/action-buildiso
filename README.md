@@ -37,8 +37,10 @@ own tooling through `mise.toml`.
 
 `scripts/check-sources.py` parses the fetch steps out of `action.yml` and
 checks that every clone resolves and lands in the directory the next line
-enters, and that every fetched file exists and looks like what the step
-does with it. It runs on change and daily.
+enters, that every fetched file exists and looks like what the step does
+with it, that every mirror the keyring resolver falls back through still
+carries the keyring, and that nothing the runner executes has CRLF line
+endings. It runs on change and daily.
 
 Three consecutive releases were broken by one-line faults here - a stale
 URL, a clone landing in a differently-named directory, and a URL that
@@ -56,6 +58,38 @@ it is not always reachable from a runner. A single unavailable moment took
 out seven of fifteen builds with `remote: Token has expired` on a public
 clone, and a build that has already spent twenty minutes should not die
 fetching a keyring.
+
+### Transient failures
+
+Every `git clone`, `wget` and `curl` goes through `retry()` from
+`scripts/retry.sh`, sourced by each step that fetches something - a
+composite step is its own shell, so there is nowhere else to put it. Three
+attempts, with the pause doubling after each, both overridable through
+`RETRY_ATTEMPTS` and `RETRY_DELAY`. A command that fails every attempt
+still fails the step with its own exit code.
+
+Four full runs in one session died on faults that a second attempt would
+have absorbed: a `403 Token has expired` from a clone of a public GitLab
+repository, and `archlinux.org` answering 502 for roughly one request in
+three. At around twenty-five minutes per edition, that is the cost of not
+retrying.
+
+`archlinux-keyring` is resolved by `scripts/install-archlinux-keyring.sh`
+rather than fetched from `https://archlinux.org/packages/.../download`.
+That URL is an HTML redirector rather than a mirror path, and was the least
+reliable source in the action. The script reads `core.db` from the build
+mirror, takes the current filename out of the package's `desc` entry, and
+fetches the package from beside the database - a real mirror path, on the
+mirror the build already depends on. An Arch mirror follows it, so one
+mirror lagging or dropping out does not stop a build.
+
+Keys named by `additional-trusted-gpg` are received from
+`keys.openpgp.org`, falling back to `keyserver.ubuntu.com`; both carry the
+same keys, and one being unreachable is not a reason to fail a build.
+
+`.gitattributes` normalises line endings on checkin. Bash refuses a script
+with CRLF endings and the error names the shell rather than the endings,
+which is a cryptic way to lose a build a quarter of an hour in.
 
 ### Chroot DNS
 
