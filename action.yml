@@ -84,6 +84,10 @@ runs:
   steps:
     - id: install-build-dependencies
       shell: bash
+      env:
+        UV_VERSION: '0.12.7'
+        MESON_VERSION: '1.12.0'
+        NINJA_VERSION: '1.13.2'
       run: |
         sudo apt-add-repository -y universe
         sudo apt-get update
@@ -116,8 +120,15 @@ runs:
           doxygen \
           zstd \
           s3cmd
-        sudo python3 -m pip install meson
-        sudo python3 -m pip install ninja
+        # uv rather than pip, pinned so an upstream release cannot break
+        # a build that was passing. `uv tool install` rather than
+        # `pip install --system`: ubuntu marks its python
+        # externally-managed and refuses a system install outright.
+        curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        uv tool install "meson==${MESON_VERSION}"
+        uv tool install "ninja==${NINJA_VERSION}"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
     - id: cache-pacman
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -352,7 +363,7 @@ runs:
         # runs before the split-zip below: github caps an asset at 2 GB, so
         # the release can only ever carry the parts, while object storage
         # takes the image itself and serves it without reassembly
-        python3 -m pip install --quiet boto3
+        "$HOME/.local/bin/uv" pip install --system --quiet boto3==1.43.89
         python3 - <<'EOF'
         import os
 
