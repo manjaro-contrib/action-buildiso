@@ -364,6 +364,7 @@ runs:
         R2_BUCKET: ${{ inputs.r2-bucket }}
         R2_PREFIX: ${{ inputs.r2-prefix }}
         ISO: ${{ steps.image-build.outputs.file-path }}
+        BOTO3_VERSION: '1.43.89'
       run: |
         # if is not yet supported in composite https://github.com/actions/runner/blob/main/docs/adrs/0549-composite-run-steps.md#if-condition
         if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
@@ -374,8 +375,10 @@ runs:
         # runs before the split-zip below: github caps an asset at 2 GB, so
         # the release can only ever carry the parts, while object storage
         # takes the image itself and serves it without reassembly
-        "$HOME/.local/bin/uv" pip install --system --quiet boto3==1.43.89
-        python3 - <<'EOF'
+        # an ephemeral environment rather than a system install: ubuntu marks
+        # its python externally-managed, so a --system install is refused
+        "$HOME/.local/bin/uv" run --no-project --quiet \
+          --with "boto3==${BOTO3_VERSION}" - <<'EOF'
         import os
 
         import boto3

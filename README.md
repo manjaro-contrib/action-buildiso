@@ -23,8 +23,11 @@ Python tooling is installed with `uv` at pinned versions, declared in the
 line. An unpinned dependency turns an upstream release into a failing
 build on an unrelated pull request.
 
-`uv tool install` rather than `pip install --system`: Ubuntu marks its
-system python externally-managed and refuses a system install outright.
+Ubuntu marks its system python externally-managed and refuses
+`pip install --system` outright - `uv pip install --system` hits the same
+refusal. So nothing is installed into the system python: meson and ninja
+go in with `uv tool install`, and boto3 is supplied by `uv run --with` for
+the one step that imports it.
 
 This is a composite action, so it cannot assume the caller's runner has
 mise - it installs uv itself. The repositories that consume it pin their
