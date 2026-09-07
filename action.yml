@@ -296,7 +296,7 @@ runs:
         CUSTOM_REPO: ${{ inputs.custom-repo }}
         BUILD_MIRROR: ${{ inputs.build-mirror }}
         FALLBACK_MIRRORS: ${{ inputs.fallback-mirrors }}
-        XFER_DIR: /usr/local/lib/manjaro-iso
+        XFER_DIR: /var/cache/pacman/pkg/.manjaro-iso
       run: |
         . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         retry sudo git clone --depth 1 https://github.com/manjaro-contrib/tools-development-tools-manjaro-tools.git manjaro-tools
@@ -314,6 +314,11 @@ runs:
         # so alternatives listed there do not survive into the chroot.
         # XferCommand lives in [options] and does survive, which is why the
         # failover goes there; see the script for the outage it exists for.
+        #
+        # It lands under the pacman cache because the mhwd stage runs pacman
+        # inside a chroot, and chroot-run bind-mounts the cache there at the
+        # same path - a /usr/local path exists on the host only, and pacman
+        # reports that as 'running XferCommand: fork failed!'.
         if [ -n "$(echo ${FALLBACK_MIRRORS})" ]; then
           sudo install -Dm755 "$GITHUB_ACTION_PATH/scripts/pacman-xfer.sh" \
             "$XFER_DIR/pacman-xfer.sh"

@@ -64,6 +64,16 @@ if [ "$suffix" = "$URL" ]; then
   exit $?
 fi
 
+case "$URL" in
+  *.sig)
+    # pacman probes for a detached signature that our repositories do not
+    # publish, and treats its absence as an answer. Asking every mirror
+    # for it would spend four round trips to learn the same 404.
+    fetch "$URL"
+    exit $?
+    ;;
+esac
+
 status=1
 while read -r mirror; do
   [ -n "$mirror" ] || continue
