@@ -18,6 +18,17 @@ It optionally provides:
 
 ### Sources
 
+`scripts/check-sources.py` parses the fetch steps out of `action.yml` and
+checks that every clone resolves and lands in the directory the next line
+enters, and that every fetched file exists and looks like what the step
+does with it. It runs on change and daily.
+
+Three consecutive releases were broken by one-line faults here - a stale
+URL, a clone landing in a differently-named directory, and a URL that
+served an HTML page rather than the config it was installing. Each cost a
+full ISO build to discover, around twenty-five minutes per edition, and
+none of them needed a build to catch.
+
 Everything the build clones or fetches comes from the `manjaro-contrib`
 mirrors on GitHub rather than `gitlab.manjaro.org` directly: pacman,
 manjaro-keyring, calamares-tools, manjaro-tools, manjaro-release,
