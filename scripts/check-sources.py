@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -79,6 +80,24 @@ def check_clones(body: str, workdir: str) -> list[str]:
     return problems
 
 
+def fetch(url: str, attempts: int = 3) -> str | None:
+    """Fetch a url, tolerating the transient failures mirrors actually serve.
+
+    archlinux.org answers a run of requests with an intermittent 502, so a
+    single attempt reports a source as gone when it is merely flaking. Only
+    a url that fails every attempt is treated as a real problem.
+    """
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except (urllib.error.URLError, OSError) as e:
+            log(f"  retry {url} ({e})" if attempt + 1 < attempts else f"  gave up on {url} ({e})")
+            if attempt + 1 < attempts:
+                time.sleep(2 * (attempt + 1))
+    return None
+
+
 def check_fetches(body: str) -> list[str]:
     """Each fetched file must exist and contain what the step relies on."""
     problems = []
@@ -87,11 +106,9 @@ def check_fetches(body: str) -> list[str]:
         if "${" in url or "$(" in url:
             # interpolated at build time; nothing static to check
             continue
-        try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
-                payload = resp.read().decode("utf-8", "replace")
-        except (urllib.error.URLError, OSError) as e:
-            problems.append(f"{url} is not fetchable: {e}")
+        payload = fetch(url)
+        if payload is None:
+            problems.append(f"{url} is not fetchable")
             continue
 
         name = url.rsplit("/", 1)[1]

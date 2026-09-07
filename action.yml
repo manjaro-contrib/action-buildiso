@@ -26,7 +26,11 @@ inputs:
   kernel:
     description: 'kernel version'
     required: false
-    default: linux510
+    # linux510 was the default for years after it left the repositories,
+    # so any caller that did not set this failed with 'target not found'.
+    # Callers that track upstream should pass a resolved version rather
+    # than relying on this.
+    default: linux612
   code-name:
     description: 'manjaro code-name (upstream if not given)'
     required: false
@@ -43,7 +47,7 @@ inputs:
   build-mirror:
     description: 'specific build mirror to use'
     required: false
-    default: https://mirror.easyname.at/manjaro
+    default: https://opencolo.mm.fcix.net/manjaro
   gpg-secret-key-base64:
     description: 'base64 encoded gpg secret key (without a passphrase) to sign the zip (if set)'
     required: false
@@ -84,6 +88,10 @@ runs:
   steps:
     - id: install-build-dependencies
       shell: bash
+      env:
+        UV_VERSION: '0.12.7'
+        MESON_VERSION: '1.12.0'
+        NINJA_VERSION: '1.13.2'
       run: |
         sudo apt-add-repository -y universe
         sudo apt-get update
@@ -116,8 +124,22 @@ runs:
           doxygen \
           zstd \
           s3cmd
-        sudo python3 -m pip install meson
-        sudo python3 -m pip install ninja
+        # uv rather than pip, pinned so an upstream release cannot break
+        # a build that was passing. `uv tool install` rather than
+        # `pip install --system`: ubuntu marks its python
+        # externally-managed and refuses a system install outright.
+        curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        # into /usr/local/bin, not the default ~/.local/bin: the pacman
+        # build runs meson under sudo, which resets PATH to secure_path and
+        # would not see a binary in the runner user's home
+        # --force: the runner image already ships a ninja in
+        # /usr/local/bin, and uv refuses to replace an existing executable.
+        # Pinning the version is the point, so ours has to win.
+        sudo env "PATH=$PATH" UV_TOOL_BIN_DIR=/usr/local/bin \
+          uv tool install --force "meson==${MESON_VERSION}"
+        sudo env "PATH=$PATH" UV_TOOL_BIN_DIR=/usr/local/bin \
+          uv tool install --force "ninja==${NINJA_VERSION}"
     - id: cache-pacman
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -352,7 +374,7 @@ runs:
         # runs before the split-zip below: github caps an asset at 2 GB, so
         # the release can only ever carry the parts, while object storage
         # takes the image itself and serves it without reassembly
-        python3 -m pip install --quiet boto3
+        "$HOME/.local/bin/uv" pip install --system --quiet boto3==1.43.89
         python3 - <<'EOF'
         import os
 

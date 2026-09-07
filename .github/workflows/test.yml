@@ -4,9 +4,12 @@ on:
 
 env:
   ##### EDIT ME #####
-  iso-profiles-git: https://gitlab.manjaro.org/profiles-and-settings/iso-profiles
+  iso-profiles-git: https://github.com/manjaro-contrib/profiles-and-settings-iso-profiles
   version: ci-test-ignore-me-${{ github.event.number }}
   ###################
+
+permissions:
+  contents: write
 
 jobs:
   cleanup:
@@ -44,4 +47,7 @@ jobs:
           release-tag: ${{ env.version }}
           gpg-secret-key-base64: ${{ secrets.CI_PRIV_KEY }}
           gpg-passphrase: ${{ secrets.CI_GPG_PASSPHRASE }}
-          build-mirror: ${{ secrets.BUILD_MIRROR }}
+          # only override the action's default when a mirror is configured:
+          # passing an unset secret sets it to the empty string, and the
+          # build then resolves /unstable/$repo/$arch with no host at all
+          build-mirror: ${{ secrets.BUILD_MIRROR || 'https://opencolo.mm.fcix.net/manjaro' }}

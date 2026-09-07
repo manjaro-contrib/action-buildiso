@@ -16,6 +16,20 @@ It optionally provides:
 - Distribution to Github Releases
 - Upload of the unsplit image to S3-compatible object storage
 
+### Dependencies
+
+Python tooling is installed with `uv` at pinned versions, declared in the
+`install-build-dependencies` step's `env` rather than buried in a shell
+line. An unpinned dependency turns an upstream release into a failing
+build on an unrelated pull request.
+
+`uv tool install` rather than `pip install --system`: Ubuntu marks its
+system python externally-managed and refuses a system install outright.
+
+This is a composite action, so it cannot assume the caller's runner has
+mise - it installs uv itself. The repositories that consume it pin their
+own tooling through `mise.toml`.
+
 ### Sources
 
 `scripts/check-sources.py` parses the fetch steps out of `action.yml` and
