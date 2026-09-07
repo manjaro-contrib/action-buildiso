@@ -87,11 +87,20 @@ inputs:
     description: 'key prefix inside the bucket, e.g. rc-202601010000/'
     required: false
     default: ''
+  export-rootfs:
+    description: >-
+      also export the iso's squashfs layers as a flat rootfs tarball, for
+      running the desktop as a container rather than booting it
+    required: false
+    default: "false"
 
 outputs:
   file-path:
     description: "path of the generated iso"
     value: ${{ steps.image-build.outputs.file-path }}
+  rootfs-path:
+    description: "path of the exported rootfs tarball, empty unless export-rootfs"
+    value: ${{ steps.image-build.outputs.rootfs-path }}
 
 runs:
   using: "composite"
@@ -358,6 +367,7 @@ runs:
         OFFICE: ${{ inputs.office-chooser }}
         BUILD_MIRROR: ${{ inputs.build-mirror }}
         CHROOT_NAMESERVERS: ${{ inputs.chroot-nameservers }}
+        EXPORT_ROOTFS: ${{ inputs.export-rootfs }}
       run: |
         . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         echo "## building iso"
@@ -381,6 +391,17 @@ runs:
           bash "$GITHUB_ACTION_PATH/scripts/enable-chroot-dns.sh"
 
         sudo buildiso ${SCOPE:+-f} -p $EDITION -b $BRANCH -k $KERNEL ${OFFICE:+-o}
+
+        # buildiso's work dir is deleted on the next line, and the squashfs
+        # layers only exist until then
+        if [ "$EXPORT_ROOTFS" = "true" ]; then
+          echo "## exporting the rootfs"
+          sudo bash "$GITHUB_ACTION_PATH/scripts/export-rootfs.sh" \
+            --work-dir "/var/lib/manjaro-tools/buildiso/${EDITION}" \
+            --output "$PWD/rootfs.tar.zst"
+          sudo chown "$(id -u):$(id -g)" "$PWD/rootfs.tar.zst"
+          echo "rootfs-path=rootfs.tar.zst" >> $GITHUB_OUTPUT
+        fi
 
         sudo rm -Rf /var/lib/manjaro-tools/buildiso/*
         

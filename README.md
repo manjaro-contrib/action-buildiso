@@ -129,6 +129,26 @@ and `coresite` sustain about 30 MB/s where `opencolo` manages 19.6, with
 lower connect latency, and `opencolo` was the mirror that failed twice in
 one evening. It is still in the list, just no longer in the hot path.
 
+### Rootfs export
+
+`export-rootfs: true` also writes `rootfs.tar.zst`, the ISO's own squashfs
+layers stacked into a flat filesystem that `docker import` turns into a
+runnable image. The path is exposed as the `rootfs-path` output.
+
+An ISO is not a container image - it carries a kernel, an initramfs, a
+bootloader and an installer, and it is booted rather than run. The desktop
+inside it is another matter: manjaro-tools already builds it as layers
+which calamares unpacks onto the target with no translation, so stacking
+`rootfs.sfs`, `desktopfs.sfs` and `livefs.sfs` in that order gives the
+filesystem a user gets after installing, without booting anything.
+
+Dropped, because only a boot needs them: the kernel, its modules, the
+firmware, the initramfs config and calamares. The mhwd layer is left out
+too - it is a driver package repository, not part of the running system.
+
+The export runs between `buildiso` and the line that deletes its work
+directory, because the layers exist only in that window.
+
 ### Chroot DNS
 
 `buildiso` builds its overlays through `mkchroot` -> `basestrap`, which
