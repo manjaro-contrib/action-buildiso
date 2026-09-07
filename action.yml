@@ -48,6 +48,16 @@ inputs:
     description: 'specific build mirror to use'
     required: false
     default: https://opencolo.mm.fcix.net/manjaro
+  fallback-mirrors:
+    description: >-
+      whitespace-separated mirrors pacman falls back through when the build
+      mirror stalls mid-transaction; empty disables the failover
+    required: false
+    # the same sync tier as the default build mirror, different operators
+    default: >-
+      https://forksystems.mm.fcix.net/manjaro
+      https://coresite.mm.fcix.net/manjaro
+      https://mirror.fcix.net/manjaro
   gpg-secret-key-base64:
     description: 'base64 encoded gpg secret key (without a passphrase) to sign the zip (if set)'
     required: false
@@ -284,6 +294,9 @@ runs:
       shell: bash
       env:
         CUSTOM_REPO: ${{ inputs.custom-repo }}
+        BUILD_MIRROR: ${{ inputs.build-mirror }}
+        FALLBACK_MIRRORS: ${{ inputs.fallback-mirrors }}
+        XFER_DIR: /var/cache/pacman/pkg/.manjaro-iso
       run: |
         . "$GITHUB_ACTION_PATH/scripts/retry.sh"
         retry sudo git clone --depth 1 https://github.com/manjaro-contrib/tools-development-tools-manjaro-tools.git manjaro-tools
@@ -295,6 +308,27 @@ runs:
         if [ ! -z ${CUSTOM_REPO} ]; then
           echo "## adding repo [${CUSTOM_REPO}]"
           sudo sed -i -e "s/\[core\]/\[${CUSTOM_REPO}\]\nSigLevel = PackageRequired\nInclude = \/etc\/pacman\.d\/mirrorlist\n\n\[core\]/" /usr/share/manjaro-tools/pacman-multilib.conf
+        fi
+
+        # mkchroot rewrites the mirrorlist down to the single build mirror,
+        # so alternatives listed there do not survive into the chroot.
+        # XferCommand lives in [options] and does survive, which is why the
+        # failover goes there; see the script for the outage it exists for.
+        #
+        # It lands under the pacman cache because the mhwd stage runs pacman
+        # inside a chroot, and chroot-run bind-mounts the cache there at the
+        # same path - a /usr/local path exists on the host only, and pacman
+        # reports that as 'running XferCommand: fork failed!'.
+        if [ -n "$(echo ${FALLBACK_MIRRORS})" ]; then
+          sudo install -Dm755 "$GITHUB_ACTION_PATH/scripts/pacman-xfer.sh" \
+            "$XFER_DIR/pacman-xfer.sh"
+          printf '%s\n' "${BUILD_MIRROR%/}" ${FALLBACK_MIRRORS} \
+            | sudo tee "$XFER_DIR/build-mirrors" >/dev/null
+          for conf in /usr/share/manjaro-tools/pacman-*.conf; do
+            sudo sed -i -e "/^\[options\]/a XferCommand = $XFER_DIR/pacman-xfer.sh %o %u" "$conf"
+          done
+          echo "## package downloads fall back through:"
+          sudo cat "$XFER_DIR/build-mirrors"
         fi
     - id: checkout-iso-profiles
       shell: bash

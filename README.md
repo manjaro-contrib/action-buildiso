@@ -39,8 +39,9 @@ own tooling through `mise.toml`.
 checks that every clone resolves and lands in the directory the next line
 enters, that every fetched file exists and looks like what the step does
 with it, that every mirror the keyring resolver falls back through still
-carries the keyring, and that nothing the runner executes has CRLF line
-endings. It runs on change and daily.
+carries the keyring, that every mirror pacman falls back through still
+serves the repositories, and that nothing the runner executes has CRLF
+line endings. It runs on change and daily.
 
 Three consecutive releases were broken by one-line faults here - a stale
 URL, a clone landing in a differently-named directory, and a URL that
@@ -90,6 +91,32 @@ same keys, and one being unreachable is not a reason to fail a build.
 `.gitattributes` normalises line endings on checkin. Bash refuses a script
 with CRLF endings and the error names the shell rather than the endings,
 which is a cryptic way to lose a build a quarter of an hour in.
+
+The retry above covers what the action itself fetches, but not what pacman
+downloads inside `buildiso` - and a stalled mirror there took out four of
+fifteen editions in one run, each about twenty-five minutes in:
+
+```
+error: failed retrieving file 'linux618-6.18.49-1-x86_64.pkg.tar.zst'
+  from opencolo.mm.fcix.net : Operation too slow.
+warning: too many errors from opencolo.mm.fcix.net, skipping for the
+  remainder of this transaction
+```
+
+pacman had nothing to fall back to, because manjaro-tools points a chroot
+at exactly one mirror: `mkchroot` rewrites `Include = /etc/pacman.d/mirrorlist`
+to a single `Server =` built from `build_mirror`, and `chroot-run` overwrites
+the mirrorlist outright. Listing alternatives there does not survive.
+
+`XferCommand` does survive, because it sits in `[options]` rather than in a
+repository section, so `scripts/pacman-xfer.sh` goes there and swaps the
+host in the url pacman asked for. `fallback-mirrors` sets the list; it
+defaults to three mirrors on the same sync tier as the build mirror and
+under different operators, and emptying it restores plain downloads.
+
+The mirror it was fetching from is not the problem - `opencolo` sustains
+30 to 50 MB/s from a runner, and the failure was a stall rather than
+slowness. Having only one mirror is the problem, so that is what changed.
 
 ### Chroot DNS
 
