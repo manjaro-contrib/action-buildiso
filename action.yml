@@ -126,9 +126,13 @@ runs:
         # externally-managed and refuses a system install outright.
         curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
         export PATH="$HOME/.local/bin:$PATH"
-        uv tool install "meson==${MESON_VERSION}"
-        uv tool install "ninja==${NINJA_VERSION}"
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        # into /usr/local/bin, not the default ~/.local/bin: the pacman
+        # build runs meson under sudo, which resets PATH to secure_path and
+        # would not see a binary in the runner user's home
+        sudo env "PATH=$PATH" UV_TOOL_BIN_DIR=/usr/local/bin \
+          uv tool install "meson==${MESON_VERSION}"
+        sudo env "PATH=$PATH" UV_TOOL_BIN_DIR=/usr/local/bin \
+          uv tool install "ninja==${NINJA_VERSION}"
     - id: cache-pacman
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
