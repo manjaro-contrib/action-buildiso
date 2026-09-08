@@ -177,6 +177,14 @@ too - it is a driver package repository, not part of the running system.
 The export runs between `buildiso` and the line that deletes its work
 directory, because the layers exist only in that window.
 
+When object storage is configured it is uploaded beside the image, as
+`<iso-name>.rootfs.tar.zst` - named after the image rather than
+`rootfs.tar.zst`, which would collide between editions. It is not part of
+the image's all-or-nothing set: that set exists because an image whose
+signature is missing cannot be verified, and the rootfs says nothing about
+the image. A rootfs that fails to upload takes only itself down and leaves
+a verified image published.
+
 ### Chroot DNS
 
 `buildiso` builds its overlays through `mkchroot` -> `basestrap`, which

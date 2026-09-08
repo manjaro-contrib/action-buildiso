@@ -449,6 +449,7 @@ runs:
         R2_BUCKET: ${{ inputs.r2-bucket }}
         R2_PREFIX: ${{ inputs.r2-prefix }}
         ISO: ${{ steps.image-build.outputs.file-path }}
+        ROOTFS: ${{ steps.image-build.outputs.rootfs-path }}
         BOTO3_VERSION: '1.43.89'
       run: |
         # if is not yet supported in composite https://github.com/actions/runner/blob/main/docs/adrs/0549-composite-run-steps.md#if-condition
@@ -514,6 +515,36 @@ runs:
                     # whole block exists to prevent
                     print(f"{iso}: could not remove {done}: {cleanup}")
             raise
+
+        # The rootfs is deliberately not part of the set above. That set is
+        # all-or-nothing because an image whose signature is missing cannot
+        # be verified; the rootfs is a separate artifact and its absence
+        # says nothing about the image. So a rootfs that fails to upload
+        # takes only itself down, and leaves a verified image published.
+        rootfs = os.environ.get("ROOTFS", "")
+        if rootfs and os.path.exists(rootfs):
+            # named after the image rather than "rootfs.tar.zst", which
+            # would collide between editions sharing a prefix
+            rootfs_key = f"{key}.rootfs.tar.zst"
+            rootfs_size = os.path.getsize(rootfs)
+            print(f"{rootfs}: {rootfs_size / 1e9:.2f} GB -> {rootfs_key}")
+            try:
+                s3.upload_file(rootfs, bucket, rootfs_key, Config=config)
+                head = s3.head_object(Bucket=bucket, Key=rootfs_key)
+                if head["ContentLength"] != rootfs_size:
+                    s3.delete_object(Bucket=bucket, Key=rootfs_key)
+                    raise SystemExit(
+                        f"{rootfs}: uploaded {head['ContentLength']} of {rootfs_size}"
+                    )
+                print(f"{rootfs_key}: published")
+            except (OSError, BotoCoreError, ClientError) as e:
+                # not fatal: the image and its checksums are already up, and
+                # failing here would withdraw a good release over an extra
+                print(f"{rootfs}: not published: {e}")
+                try:
+                    s3.delete_object(Bucket=bucket, Key=rootfs_key)
+                except (BotoCoreError, ClientError):
+                    pass
         EOF
     - id: upload-github-release
       shell: bash -O extglob {0}
