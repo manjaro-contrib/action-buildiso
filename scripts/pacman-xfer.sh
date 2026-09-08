@@ -32,10 +32,18 @@ MIRRORS_FILE="${PACMAN_XFER_MIRRORS:-$(dirname "${BASH_SOURCE[0]}")/build-mirror
 # --continue resumes a part-file from an earlier attempt; --speed-limit
 # with --speed-time is what turns a stalled transfer into a failure this
 # script can act on, rather than one that hangs until pacman gives up.
+#
+# The connect timeout was 5s, chosen when a dead mirror cost it on every
+# one of ~800 invocations. The sick list below means it is now paid once
+# per mirror per five minutes, so it can afford to be generous - and it
+# has to be: a healthy mirror that is briefly slow to accept a connection
+# is not a dead one, and 5s was low enough that one blip failed a build
+# (release run 34197756772, a single 5002ms timeout with fourteen other
+# editions building against that same mirror at that same moment).
 curl_opts=(
   --location --fail --silent --show-error
   --continue-at -
-  --connect-timeout "${PACMAN_XFER_CONNECT_TIMEOUT:-5}"
+  --connect-timeout "${PACMAN_XFER_CONNECT_TIMEOUT:-15}"
   --speed-limit "${PACMAN_XFER_SPEED_LIMIT:-10000}"
   --speed-time "${PACMAN_XFER_SPEED_TIME:-20}"
 )
@@ -104,6 +112,7 @@ tried=0
 while read -r mirror; do
   [ -n "$mirror" ] || continue
   if sick "$mirror"; then
+    echo "## xfer: skipping ${mirror}, marked down within the last ${SICK_TTL}s" >&2
     continue
   fi
   tried=$((tried + 1))
@@ -127,15 +136,40 @@ while read -r mirror; do
 done < "$MIRRORS_FILE"
 
 if [ "$tried" -eq 0 ]; then
-  # every mirror is marked sick; clear the markers and take one honest run
-  # through the list rather than failing without having tried anything
+  # Every mirror is marked sick. Clear the markers and take one honest run
+  # through the list rather than failing without having tried anything.
+  #
+  # Clearing on every invocation would undo the sick list exactly when it
+  # matters most - with all mirrors down, all ~800 remaining packages would
+  # each re-probe every mirror. So the retry is rate limited: one sweep per
+  # TTL, marked by a stamp that survives the clear.
+  #
+  # It says so out loud, too. Silently retrying meant a build that died on
+  # this path showed one curl error and no '## xfer:' line at all, which
+  # reads exactly like a failover that never ran.
+  sweep="$SICK_DIR/.last-sweep"
+  if [ -f "$sweep" ] &&
+     [ $(( $(date +%s) - $(stat -c %Y "$sweep" 2>/dev/null || echo 0) )) -lt "$SICK_TTL" ]; then
+    echo "## xfer: every mirror is marked down, and one sweep already failed within ${SICK_TTL}s" >&2
+    echo "## xfer: no mirror served ${suffix#/}" >&2
+    exit "$status"
+  fi
+  echo "## xfer: every mirror is marked sick; clearing and retrying once" >&2
   rm -rf "$SICK_DIR"
+  mkdir -p "$SICK_DIR" 2>/dev/null || true
+  : > "$sweep" 2>/dev/null || true
   while read -r mirror; do
     [ -n "$mirror" ] || continue
     fetch "${mirror%/}${suffix}"
     status=$?
     [ "$status" -eq 0 ] && exit 0
     rm -f "$OUT"
+    # mark again: the clear above removed the markers, and without this the
+    # next invocation finds nothing sick and pays the full probe again
+    if [ "$status" -ne 22 ]; then
+      mark_sick "$mirror"
+    fi
+    echo "## xfer: ${mirror} failed with exit ${status} on the retry" >&2
   done < "$MIRRORS_FILE"
 fi
 
