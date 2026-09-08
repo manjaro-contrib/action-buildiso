@@ -88,6 +88,34 @@ Keys named by `additional-trusted-gpg` are received from
 `keys.openpgp.org`, falling back to `keyserver.ubuntu.com`; both carry the
 same keys, and one being unreachable is not a reason to fail a build.
 
+### Choosing the mirrors
+
+`scripts/rank-mirrors.py` measures every mirror that carries all three
+branches and rewrites `build-mirror` and `fallback-mirrors` with the
+fastest four. `.github/workflows/rank-mirrors.yml` runs it weekly and
+opens a pull request when the order changes, so the numbers are reviewed
+rather than applied.
+
+It runs on a runner because that is the only place the numbers mean
+anything: the same mirror measured 12.8 MB/s from a laptop in Germany and
+33-48 MiB/s from a GitHub runner, which is enough to invert a ranking.
+Every mirror here is in the US, so a European measurement mostly ranks
+them by distance to Europe.
+
+Two details it gets right that a naive benchmark does not:
+
+- the probe is a kernel package resolved from each mirror's own `core.db`,
+  not `core.db` itself. That file is 154 KB, small enough that the result
+  measures round trips rather than bandwidth.
+- at most two mirrors come from one operator. Most of the fast ones are
+  FCIX under different names, and a fallback list that is four names on one
+  network fails together. Capping rather than forbidding keeps FCIX in,
+  since excluding the fastest network to satisfy a rule would pick slow
+  mirrors on principle.
+
+Sync state is a gate, not a score: a mirror that lags is dropped however
+fast it is, and among those in sync only throughput decides.
+
 `.gitattributes` normalises line endings on checkin. Bash refuses a script
 with CRLF endings and the error names the shell rather than the endings,
 which is a cryptic way to lose a build a quarter of an hour in.
