@@ -333,7 +333,19 @@ runs:
             "$XFER_DIR/pacman-xfer.sh"
           printf '%s\n' "${BUILD_MIRROR%/}" ${FALLBACK_MIRRORS} \
             | sudo tee "$XFER_DIR/build-mirrors" >/dev/null
-          for conf in /usr/share/manjaro-tools/pacman-*.conf; do
+          # /etc/pacman.conf as well as manjaro-tools' own: mkchroot builds
+          # the config it hands basestrap from get_pacman_conf(), but the
+          # host's /etc/pacman.conf is what install-pacman wrote and what
+          # several stages copy into a chroot. Patching only the former
+          # meant the failover was configured, printed the list below, and
+          # was never actually invoked for a package - every real build
+          # logged zero '## xfer:' lines while pacman used its own
+          # downloader and died on the first mirror that blipped.
+          for conf in /usr/share/manjaro-tools/pacman-*.conf /etc/pacman.conf; do
+            [ -f "$conf" ] || continue
+            # idempotent: this step can run against a restored pacman cache
+            # whose config already carries the line
+            sudo sed -i -e "\#^XferCommand = $XFER_DIR/pacman-xfer.sh#d" "$conf"
             sudo sed -i -e "/^\[options\]/a XferCommand = $XFER_DIR/pacman-xfer.sh %o %u" "$conf"
           done
           echo "## package downloads fall back through:"
